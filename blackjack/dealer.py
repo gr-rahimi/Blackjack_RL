@@ -36,8 +36,9 @@ class DealerDeck:
         self._head +=1
         return self._total_cards[self._head-1]
 
-    def getStr(self):
-        p_str = [c.getStr() for c in self._total_cards[self._head:self._end]]
+    def getStr(self, number_of_cards = None):
+        p_str = [c.getStr() for c in self._total_cards[self._head:min(self._end, self._head+ number_of_cards
+        if number_of_cards != None else self._end)]]
         return "|".join(p_str)
 
     def NumberRemained(self):
@@ -51,6 +52,7 @@ class DealerDeck:
 
 
 class Dealer(Player):
+    average_card_per_player = 6
 
     def __init__(self, number_of_decks):
         super(Dealer, self).__init__("Dealer")
@@ -60,14 +62,14 @@ class Dealer(Player):
 
     def CanContinue(self, number_of_players):
         remained_card = self.getDeckNumerRemained()
-        expected_card = number_of_players * 6
+        expected_card = number_of_players * Dealer.average_card_per_player
         self.predicted_remaining_cards = remained_card - expected_card
         return expected_card <= remained_card
 
 
     def CanSplit(self):
-        if self.predicted_remaining_cards > 6:
-            self.predicted_remaining_cards -= 6
+        if self.predicted_remaining_cards > Dealer.average_card_per_player:
+            self.predicted_remaining_cards -= Dealer.average_card_per_player
             return True
         else:
             return False
@@ -97,8 +99,8 @@ class Dealer(Player):
     def _getInsuranceFeature(self, desk):
         pass
 
-    def getDeckStr(self):
-        return self._deck.getStr()
+    def getDeckStr(self, number_of_cards = None):
+        return self._deck.getStr(number_of_cards = number_of_cards)
     def getDeckNumerRemained(self):
         return self._deck.NumberRemained()
 

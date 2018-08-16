@@ -29,6 +29,8 @@ class Stat(object):
             self._fig.canvas.draw()
             self._fig.canvas.flush_events()
             plt.pause(0.001)
+    def setName(self, name):
+        self._line.set_label(name)
 
 
 

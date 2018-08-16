@@ -3,6 +3,7 @@ from collections import defaultdict
 import numpy as np
 from abc import abstractmethod, ABC
 import random
+import blackjack
 
 
 class Actions(Enum):
@@ -61,7 +62,7 @@ class Player(ABC):
 
 
     def HowManyAce(self, only_visible):
-        return sum([1 if (c.IsVisible or not only_visible) and c.IsAce() else 0 for c in self._hand])
+        return sum([1 if (c.IsVisible() or not only_visible) and c.IsAce() else 0 for c in self._hand])
 
     def InitializeNewHand(self):
         self._hand = []
@@ -143,7 +144,8 @@ class FixedEpsilonGreedy(EpsilonGreedy):
 
 
 class IncrementalEpsilonGreedy(EpsilonGreedy):
-    def __init__(self, start_random, end_random, iterations):
+    def __init__(self, start_random, end_random, iterations, actions):
+        super(IncrementalEpsilonGreedy, self).__init__(actions)
         self._de = (float(start_random) - end_random) / iterations
         self._p = start_random
         self._end = end_random
@@ -154,12 +156,13 @@ class IncrementalEpsilonGreedy(EpsilonGreedy):
         select_random = random.uniform(0, 1)
         if select_random < self._p:
             random_action= self.getProbabilities(desk, player)
-            return np.random.choice(np.arange(len(Actions)), p = random_action)
+            return np.random.choice(np.arange(len(self.actions)), p = random_action)
         else:
-            return np.random.choice(best_action, p = 1.0/len(best_action))
+            return np.random.choice(best_action, p = np.ones(len(best_action), dtype= float)/len(best_action))
 
 
 class Agent(Player):
+
     def __init__(self,is_train, q_dict, e_greedy, card, name, state):
         super(Agent, self).__init__(name, None, card)
         self._is_train = is_train
@@ -169,16 +172,16 @@ class Agent(Player):
             self._trainig = True
             self._previous_state_action = (None, None)
             self._insurance_previous_state_action = (None,None)
-            self._e_greedy = FixedEpsilonGreedy(prob_of_random= 0.2, actions=Actions)
+            #self._e_greedy = FixedEpsilonGreedy(prob_of_random= 0.1, actions=Actions)
+            self._e_greedy = IncrementalEpsilonGreedy( start_random = 1.0, end_random= 0.0,
+                                                       iterations= int(0.9 * blackjack.number_iters), actions = Actions)
 
-            Agent._discount_factor = 0.99
-            Agent._learning_rate = 0.9
+            Agent._discount_factor = 0.95
+            Agent._learning_rate = 0.99
         else:
             self._q = q_dict
             self._previous_state_action = (state, Actions.Split)
             self._e_greedy = e_greedy
-            self._discount_factor = 0.99
-            self._learning_rate = 0.9
 
     def getAction(self, desk):
         s = self._getFeature(desk)
@@ -206,12 +209,7 @@ class Agent(Player):
         return new_action
 
 
-    def _getFeature(self, desk):
-        number_ace_me = self.HowManyAce(True)
-        dealer_value = desk.getDealer().getBestValue(True)
-        min_playr_value = self.getValueWA(True)
-        card_count = desk.getReducedCardCount()
-        return(number_ace_me, dealer_value, min_playr_value, card_count, desk.getDealer().getZone())
+
 
     def _getInsuranceFeature(self, desk):
         return (self.getBestValue(True),desk.getReducedCardCount())
@@ -272,6 +270,11 @@ class Agent(Player):
     def setTrain(self, is_train):
         self._is_train = is_train
 
+    def setStat(self, stat):
+        self._stat = stat
+        self._stat.setName(self._name)
+
+
 
 class QlearningOff(Agent):
     def __init__(self, name, is_train, original_state = None, e_greedy = None,  q = None, card = None ):
@@ -283,8 +286,13 @@ class QlearningOff(Agent):
             return
         reward = self._get_reward(desk)
         new_s = self._getFeature(desk)
+        new_q = self._q[new_s]
         prev_values = self._q[self._previous_state_action[0]]
-        best_next_value = np.amax(self._q[new_s])
+
+        valid_actions = desk.getValidActions(self)
+        best_q = new_q[np.argwhere(valid_actions == 1.0)]
+
+        best_next_value = np.amax(best_q) if len(best_q) > 0  else 0.0
         prev_values[self._previous_state_action[1]] = prev_values[self._previous_state_action[1]] * self._learning_rate +\
                                                           (1-self._learning_rate)*(reward + self._discount_factor * best_next_value)
 
@@ -298,7 +306,29 @@ class QlearningOff(Agent):
         prev_values[self._insurance_previous_state_action[1].value] = self._learning_rate * prev_values[self._insurance_previous_state_action[1].value] +\
                                                                  (1 - self._learning_rate) * reward
 
+class YusefCardCount(QlearningOff):
+    def __init__(self, name, is_train, original_state = None, e_greedy = None,  q = None, card = None):
+        super(YusefCardCount, self).__init__(name, is_train, original_state = None, e_greedy = None,  q = None, card = None)
 
 
+    def _getFeature(self, desk):
+        number_ace_me = self.HowManyAce(True)
+        dealer_value = desk.getDealer().getBestValue(True)
+        min_playr_value = self.getValueWA(True)
+        card_count = desk.getReducedCardCount()
+        return(number_ace_me, dealer_value, min_playr_value, card_count, desk.getDealer().getZone())
+
+
+
+class NoCountPlayer(QlearningOff):
+    def __init__(self, name, is_train, original_state = None, e_greedy = None,  q = None, card = None):
+        super(NoCountPlayer, self).__init__(name, is_train, original_state = None, e_greedy = None,  q = None, card = None)
+
+
+    def _getFeature(self, desk):
+        number_ace_me = self.HowManyAce(True)
+        dealer_value = desk.getDealer().getBestValue(True)
+        min_playr_value = self.getValueWA(True)
+        return(number_ace_me, dealer_value, min_playr_value)
 
 
